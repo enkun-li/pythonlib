@@ -1,0 +1,61 @@
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#>>>    whether use physical    <<<
+use_physical: True
+h: 0.6727
+ombh2: 0.0226
+omch2: 0.112
+omnuh2: 0.00064
+omegak: 0.0
+# if use_physical is False
+H0: 67.27
+omegab: 0.0462
+omegac: 0.2538
+omegan: 0.0
+omegav: 0.7
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# temperature of cmb
+Tcmb: 2.7255
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# effective equation of state parameter for dark energy
+w_lam: -1
+# varying w, PPF w-wa model
+wa_ppf: 0.0
+# constant comoving sound speed of the dark energy (1=quintessence)
+cs2_lam: 1
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#>>>     dark energy model:     <<<
+# 0: Lambda; 1: w; 2: CPL; 3: EDE
+DE_models: ['LCDM', 'wCDM', 'wwaCDM', 'EDECDM']
+dark_energy_model: 0
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#>>>       For neutrinos        <<<
+# Neff = massless_neutrinos + sum(massive_neutrinos)
+N_eff: 3.046
+# mass of massive neutrinos
+nu_mass: [0.02, 0.02866, 0.05866]
+massless_neutrinos: 2.046
+# number of distinct mass eigenstates
+nu_mass_eigenstates: 1
+# array of the integer number of physical neutrinos per eigenstate,
+# e.g. massive_neutrinos = 2 1
+num_nu_massive: [1]
+
+#specify whether all neutrinos should have the same temperature, specified from
+# fractional part of massless_neutrinos
+share_delta_neff: True
+
+#nu_mass_fractions specifies how Omeganu_h2 is shared between the eigenstates
+#i.e. to indirectly specify the mass of each state; e.g. nu_mass_fractions= 0.75 0.25
+nu_mass_fractions: [1]
+
+#if share_delta_neff = F, specify explicitly the degeneracy for each state (e.g.
+# for sterile with different temperature to active)
+# (massless_neutrinos must be set to degeneracy for massless, i.e. 
+# massless_neutrinos does then not include Deleta_Neff from massive)
+# if share_delta_neff=T then degeneracies is not given and set internally
+# e.g. for massive_neutrinos = 2 1, this gives equal temperature to 4 neutrinos:
+# nu_mass_degeneracies = 2.030 1.015, massless_neutrinos = 1.015
+nu_mass_degeneracies: [0]
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#new model parameters
+nps: [-1.0,0.01,1.0]

@@ -1,0 +1,13 @@
+for Pantheon data
+
+Optimized hyperparameters:
+theta = [24.46463208  0.14740619]
+
+Optimized hyperparameters:
+theta = [24.49128409  0.14743146]
+[24.49128409  0.14743146]
+
+Optimized hyperparameters:
+theta = [39.21533362 12.97267722]
+[39.21533362 12.97267722]
+

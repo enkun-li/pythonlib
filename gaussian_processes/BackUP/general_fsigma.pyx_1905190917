@@ -1,0 +1,251 @@
+#!/usr/bin/env python
+#-*- coding: utf-8 -*-  
+#==================================
+# File Name: gp_likelihood.pyx
+# Author: ekli
+# Mail: ekli_091@mail.dlut.edu.cn  
+# Created Time: 2019-03-20 20:35:58
+#==================================
+
+cimport cython
+import numpy as np
+import scipy.optimize as opt
+from scipy import integrate
+import sys
+if(not sys.path[0][-10:-1] == 'pythonlib'):
+    sys.path.insert(0,'/home/ekli/myworks/pythonlib/')
+from integratefunc import qgaus, qqgaus, qgaus2d_fix
+
+cdef extern from "math.h":
+    double sqrt(double xx)
+    double exp(double xx)
+    double sinh(double xx)
+    double sin(double xx)
+    double cos(double xx)
+    double fabs(double xx)
+    double log10(double xx)
+    double log(double xx)
+    double pow(double xx, double yy)
+
+
+#===================================================
+# gaussian process
+#
+@cython.final
+cdef class GaussianProcesses:
+    '''
+    GaussianProcesses(X,Y,Err)
+    ================================================
+    X: data x direction
+    Y: data y direction
+    Err: nxn covariance matrix
+    '''
+    cdef double[:] X, Y, xx
+    cdef double[:,:] Cov, Mcov, IMcov
+    cdef int n, nx
+    cdef double sigf, lenf, logDet
+    cdef double[:] integrate_xmu
+    cdef double[:,:] integrate_covxmu, integrate_db_covxmu
+    
+    def __cinit__(self, double[:] X, double[:] Y, double[:,:] Cov, double[:] xx,
+            sigf=None, lenf=None):
+        self.n = np.shape(X)[0]
+        self.X = X
+        self.Y = Y
+        self.Cov = Cov
+        self.xx = xx
+        self.nx = xx.shape[0]
+        if(sigf is not None and lenf is not None):
+            self.setup_gp(sigf,lenf)
+        return
+        
+    def setup_gp(self, double sigf, double lenf):
+        '''
+        setup_gp(sigf, lenf)
+        ====================================
+        sigf: the strength
+        lenf: the length
+        '''
+        cdef int i, j
+        cdef double[:,:] L, B, Eye
+        self.sigf = sigf
+        self.lenf = lenf
+        self.Mcov = np.zeros((self.n, self.n))
+        for i from 0<=i<self.n:
+            for j from 0<=j<self.n:
+                self.Mcov[i,j] = self.Cov[i,j] + self.kernel(self.X[i], self.X[j])
+        L = np.linalg.cholesky(self.Mcov)
+        Eye = np.eye(self.n)
+        B = np.linalg.solve(L,Eye)
+        self.IMcov = np.linalg.solve(np.transpose(L), B)
+        self.logDet = 2*np.sum(np.log(np.diagonal(L)))
+        return        
+      
+    @cython.boundscheck(False)
+    cpdef double kernel(self,double x, double y) nogil:
+        '''
+        kernel(x,y)
+        ======================================
+        return: sigf^2 exp(-(x-y)^2/2/lenf^2)
+        '''
+        cdef double k
+        k = pow(self.sigf,2) * exp(-pow((x-y), 2)/2/ pow(self.lenf, 2) )
+        #k = self.sigf**2 * exp( -(x-y)**2/2/self.lenf**2 )
+        return k
+    
+    @cython.boundscheck(False)
+    cpdef double rec_mu_x(self, double x) nogil:
+        '''
+        rec_mu_x(x)
+        ===========================
+        param x: a single value
+        '''
+        cdef double mu
+        cdef int i, j;
+
+        mu = 0.0
+        for i from 0<= i < self.n:
+            for j from 0 <= j < self.n:
+                mu += self.kernel(x, self.X[i]) * self.IMcov[i,j] * self.Y[j]
+        return mu
+    
+    @cython.boundscheck(False)
+    cpdef double rec_covariance_xy(self, double x, double y) nogil:
+        '''
+        rec_covariance_xy(x,y)
+        ===========================
+        param x: a single value or array
+
+        '''
+        cdef double v, cov
+        cdef double[:] vecl, vecr, iMY
+        cdef int i, j, k, l
+
+        v = 0.0
+        for i from 0 <= i < self.n:
+            for j from 0 <= j < self.n:
+                v += self.kernel(x, self.X[i]) * self.IMcov[i,j] * self.kernel(self.X[j], y)
+        cov = self.kernel(x,y) -v
+        return cov
+
+    @cython.boundscheck(False)
+    cpdef double fx_over_mu(self, double x, double gam) nogil:
+        '''
+        fx_over_mu(x, gam)
+        =========================
+        '''
+        cdef double ff
+        
+        ff = pow((1+x), (3*gam -1))/pow(self.rec_mu_x(x), (2*gam))
+        #ff = (1+x)**(3*gam -1)/self.rec_mu_x(x)**(2*gam)
+        return ff
+
+    @cython.boundscheck(False)
+    cpdef double[:] integrate_fx_over_mu(self, double gam) nogil:
+        '''
+        integrate_fx_over_mu(gam)
+        ================================
+        return array
+        '''
+        cdef int i
+        cdef double[:] ff
+
+        ff = np.zeros(self.nx)
+
+        for i from 0<= i < self.nx:
+            ff[i] = qgaus(self.fx_over_mu, 0.0, self.xx[i], args=(gam))
+        return ff
+
+    @cython.boundscheck(False)
+    cpdef double cov_over_mumu(self, double x, double y) nogil:
+        '''
+        cov_over_mumu(x,y)
+        =====================
+        '''
+        cdef double ff
+
+        ff = self.rec_covariance_xy(x,y)/self.rec_mu_x(x)/self.rec_mu_x(y)
+        return ff
+
+    @cython.boundscheck(False)
+    cpdef double fx_over_mu_covx(self, double x, double y, double gam) nogil:
+        '''
+        fx_over_mu_covx(x,y,gam)
+        ==========================
+        '''
+        cdef double ff
+
+        ff = pow((1+x), (3*gam -1))/pow(self.rec_mu_x(x), (2*gam)) * self.cov_over_mumu(x,y)
+        return ff
+
+    @cython.boundscheck(False)
+    cpdef double[:,:] integrate_fx_over_mu_covx(self, double gam) nogil:
+        '''
+        integrate_fx_over_mu_covx(gam)
+        ======================================
+        return matrix
+        '''
+        cdef int i, j
+        cdef double[:,:] ff
+
+        ff = np.zeros((self.nx,self.nx))
+
+        for i from 0<= i < self.nx:
+            for j from 0 <= j < self.nx:
+                ff[i,j] = qgaus(self.fx_over_mu_covx, 0.0, self.xx[j], args=(self.xx[i], gam))
+        return ff
+
+    @cython.boundscheck(False)
+    cpdef dbfx_over_mu_covxy(self, double x, double y, double gam) nogil:
+        '''
+        dbfx_over_mu_covxy(x,y,gam)
+        ===============================
+        '''
+        cdef double ff
+
+        ff = pow(((1+x)*(1+y)), (3*gam-1))/pow((self.rec_mu_x(x) *self.rec_mu_x(y)), (2*gam)) *self.cov_over_mumu(x,y)
+        return ff
+
+    @cython.boundscheck(False)
+    cpdef double[:,:] integrate_dbfx_over_mu_covxy(self, double gam) nogil:
+        '''
+        integrate_dbfx_over_mu_covxy
+        '''
+        cdef int i, j
+        cdef double[:,:] ff
+        
+        ff = np.zeros((self.nx, self.nx))
+
+        for i from 0 <= i < self.nx:
+            for j from 0 <= j <= i:
+                ff[i,j] = qgaus2d_fix(self.dbfx_over_mu_covxy, 0.0, self.xx[i], 0.0, self.xx[j], args=(gam))
+                ff[j,i] = ff[i,j]
+        return ff
+
+    @cython.boundscheck(False)
+    cpdef double[:] rec_mu_arr(self) nogil:
+        '''
+        rec_mu_arr()
+        ==============================
+        '''
+        cdef int i
+        cdef double[:] ff
+
+        ff = np.zeros(self.nx)
+
+        for i from 0 <= i < self.nx:
+            ff[i] = self.rec_mu_x(self.xx[i])
+
+        return ff
+
+    @cython.boundscheck(False)
+    cpdef initial_theory_fs8(self, double gam) nogil:
+        '''
+        initial_theory_fs8(gam)
+        =========================
+        '''
+        self.integrate_xmu = self.integrate_fx_over_mu(gam)
+        self.integrate_covxmu = self.integrate_fx_over_mu_covx(gam)
+        self.integrate_db_covxmu = self.integrate_dbfx_over_mu_covxy(gam)
+
+
